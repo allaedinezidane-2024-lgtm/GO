@@ -1,144 +1,68 @@
 package main
 
 import (
-	"sort"
+	"context"
+	"errors"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"latihan-fiber/app/model"
+	"latihan-fiber/app/repository"
 )
 
-var users []User
-var nextID = 1
-
-func findUserIndex(id int) int {
-	for i := range users {
-		if users[i].ID == id {
-			return i
-		}
-	}
-
-	return -1
-}
-
-func cocokPencarian(u User, kata string) bool {
-	kata = strings.ToLower(kata)
-
-	return strings.Contains(strings.ToLower(u.Username), kata)
-}
+var userRepo *repository.UserRepository
 
 func listUsers(c *fiber.Ctx) error {
 	q := parseListQuery(c)
 
-	hasil := []User{}
-
-	// Filter
-	for _, u := range users {
-		if q.IsActive != nil && u.IsActive != *q.IsActive {
-			continue
-		}
-
-		if q.Search != "" && !cocokPencarian(u, q.Search) {
-			continue
-		}
-
-		hasil = append(hasil, u)
+	users, total, err := userRepo.FindAll(context.Background(), q)
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, "gagal mengambil data user")
 	}
-
-	// Sorting
-	sort.SliceStable(hasil, func(i, j int) bool {
-		var lebihKecil bool
-		var lebihBesar bool
-
-		switch q.Sort {
-		case "username":
-			a := strings.ToLower(hasil[i].Username)
-			b := strings.ToLower(hasil[j].Username)
-			lebihKecil = a < b
-			lebihBesar = a > b
-
-		case "email":
-			a := strings.ToLower(hasil[i].Email)
-			b := strings.ToLower(hasil[j].Email)
-			lebihKecil = a < b
-			lebihBesar = a > b
-
-		case "is_active":
-			a := hasil[i].IsActive
-			b := hasil[j].IsActive
-			lebihKecil = !a && b
-			lebihBesar = a && !b
-
-		case "created_at":
-			lebihKecil = hasil[i].CreatedAt.Before(hasil[j].CreatedAt)
-			lebihBesar = hasil[i].CreatedAt.After(hasil[j].CreatedAt)
-
-		default:
-			lebihKecil = hasil[i].ID < hasil[j].ID
-			lebihBesar = hasil[i].ID > hasil[j].ID
-		}
-
-		if q.Order == "desc" {
-			return lebihBesar
-		}
-
-		return lebihKecil
-	})
-
-	// Pagination
-	total := len(hasil)
 
 	totalPages := 0
 	if total > 0 {
 		totalPages = (total + q.Limit - 1) / q.Limit
 	}
 
-	mulai := (q.Page - 1) * q.Limit
-
-	if mulai > total {
-		mulai = total
-	}
-
-	akhir := mulai + q.Limit
-
-	if akhir > total {
-		akhir = total
-	}
-
-	meta := &Meta{
-		Page:       q.Page,
-		Limit:      q.Limit,
-		Total:      total,
-		TotalPages: totalPages,
-	}
-
-	return c.JSON(WebResponse{
+	return c.JSON(model.WebResponse{
 		Success: true,
 		Message: "daftar user berhasil diambil",
-		Data:    hasil[mulai:akhir],
-		Meta:    meta,
+		Data:    users,
+		Meta: &model.Meta{
+			Page:       q.Page,
+			Limit:      q.Limit,
+			Total:      total,
+			TotalPages: totalPages,
+		},
 	})
 }
 
 func getUser(c *fiber.Ctx) error {
 	id, valid := paramID(c)
-
 	if !valid {
 		return fail(c, fiber.StatusBadRequest, "id harus berupa angka positif")
 	}
 
-	i := findUserIndex(id)
+	user, err := userRepo.FindByID(context.Background(), id)
 
-	if i == -1 {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return fail(c, fiber.StatusNotFound, "user tidak ditemukan")
 	}
 
-	return ok(c, "user ditemukan", users[i])
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, "gagal mengambil user")
+	}
+
+	return ok(c, "user ditemukan", user)
 }
 
 func createUser(c *fiber.Ctx) error {
-	var req CreateUserRequest
+	var req model.CreateUserRequest
 
 	if err := c.BodyParser(&req); err != nil {
 		return fail(c, fiber.StatusBadRequest, "body harus berupa JSON yang valid")
@@ -161,33 +85,34 @@ func createUser(c *fiber.Ctx) error {
 		errs["password"] = "minimal 8 karakter"
 	}
 
-	for _, u := range users {
-		if strings.EqualFold(u.Username, req.Username) {
-			errs["username"] = "sudah dipakai"
-		}
-	}
-
 	if len(errs) > 0 {
 		return failValidation(c, errs)
 	}
 
-	baru := User{
-		ID:        nextID,
-		Username:  req.Username,
-		Email:     req.Email,
-		Password:  req.Password,
-		IsActive:  true,
-		CreatedAt: time.Now(),
+	user := &model.User{
+		Username: req.Username,
+		Email:    req.Email,
+		Password: req.Password,
+		IsActive: true,
 	}
 
-	users = append(users, baru)
-	nextID++
+	err := userRepo.Create(context.Background(), user)
+
+	if err != nil {
+		var pgErr *pgconn.PgError
+
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return fail(c, fiber.StatusConflict, "username sudah dipakai")
+		}
+
+		return fail(c, fiber.StatusInternalServerError, "gagal membuat user")
+	}
 
 	return created(
 		c,
 		"user berhasil dibuat",
-		baru,
-		"/api/v1/users/"+strconv.Itoa(baru.ID),
+		user,
+		"/api/v1/users/"+strconv.Itoa(user.ID),
 	)
 }
 
@@ -198,13 +123,7 @@ func replaceUser(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusBadRequest, "id harus berupa angka positif")
 	}
 
-	i := findUserIndex(id)
-
-	if i == -1 {
-		return fail(c, fiber.StatusNotFound, "user tidak ditemukan")
-	}
-
-	var req ReplaceUserRequest
+	var req model.ReplaceUserRequest
 
 	if err := c.BodyParser(&req); err != nil {
 		return fail(c, fiber.StatusBadRequest, "body harus berupa JSON yang valid")
@@ -212,7 +131,10 @@ func replaceUser(c *fiber.Ctx) error {
 
 	errs := map[string]string{}
 
-	if strings.TrimSpace(req.Username) == "" {
+	req.Username = strings.TrimSpace(req.Username)
+	req.Email = strings.TrimSpace(req.Email)
+
+	if req.Username == "" {
 		errs["username"] = "wajib diisi pada PUT"
 	}
 
@@ -224,11 +146,37 @@ func replaceUser(c *fiber.Ctx) error {
 		return failValidation(c, errs)
 	}
 
-	users[i].Username = req.Username
-	users[i].Email = req.Email
-	users[i].IsActive = req.IsActive
+	user, err := userRepo.FindByID(context.Background(), id)
 
-	return ok(c, "user berhasil diganti seluruhnya", users[i])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fail(c, fiber.StatusNotFound, "user tidak ditemukan")
+	}
+
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, "gagal mengambil user")
+	}
+
+	user.Username = req.Username
+	user.Email = req.Email
+	user.IsActive = req.IsActive
+
+	err = userRepo.Update(context.Background(), user)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fail(c, fiber.StatusNotFound, "user tidak ditemukan")
+	}
+
+	if err != nil {
+		var pgErr *pgconn.PgError
+
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return fail(c, fiber.StatusConflict, "username sudah dipakai")
+		}
+
+		return fail(c, fiber.StatusInternalServerError, "gagal memperbarui user")
+	}
+
+	return ok(c, "user berhasil diganti seluruhnya", user)
 }
 
 func patchUser(c *fiber.Ctx) error {
@@ -238,51 +186,71 @@ func patchUser(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusBadRequest, "id harus berupa angka positif")
 	}
 
-	i := findUserIndex(id)
-
-	if i == -1 {
-		return fail(c, fiber.StatusNotFound, "user tidak ditemukan")
-	}
-
-	var req PatchUserRequest
+	var req model.PatchUserRequest
 
 	if err := c.BodyParser(&req); err != nil {
 		return fail(c, fiber.StatusBadRequest, "body harus berupa JSON yang valid")
 	}
 
-	if req.Username == nil &&
-		req.Email == nil &&
-		req.IsActive == nil {
+	if req.Username == nil && req.Email == nil && req.IsActive == nil {
 		return fail(c, fiber.StatusBadRequest, "tidak ada field yang diubah")
 	}
 
+	user, err := userRepo.FindByID(context.Background(), id)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fail(c, fiber.StatusNotFound, "user tidak ditemukan")
+	}
+
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, "gagal mengambil user")
+	}
+
 	if req.Username != nil {
-		if strings.TrimSpace(*req.Username) == "" {
-			return failValidation(
-				c,
-				map[string]string{"username": "tidak boleh kosong"},
-			)
+		username := strings.TrimSpace(*req.Username)
+
+		if username == "" {
+			return failValidation(c, map[string]string{
+				"username": "tidak boleh kosong",
+			})
 		}
 
-		users[i].Username = *req.Username
+		user.Username = username
 	}
 
 	if req.Email != nil {
-		if !strings.Contains(*req.Email, "@") {
-			return failValidation(
-				c,
-				map[string]string{"email": "format email tidak valid"},
-			)
+		email := strings.TrimSpace(*req.Email)
+
+		if !strings.Contains(email, "@") {
+			return failValidation(c, map[string]string{
+				"email": "format email tidak valid",
+			})
 		}
 
-		users[i].Email = *req.Email
+		user.Email = email
 	}
 
 	if req.IsActive != nil {
-		users[i].IsActive = *req.IsActive
+		user.IsActive = *req.IsActive
 	}
 
-	return ok(c, "user berhasil diperbarui sebagian", users[i])
+	err = userRepo.Update(context.Background(), user)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return fail(c, fiber.StatusNotFound, "user tidak ditemukan")
+	}
+
+	if err != nil {
+		var pgErr *pgconn.PgError
+
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return fail(c, fiber.StatusConflict, "username sudah dipakai")
+		}
+
+		return fail(c, fiber.StatusInternalServerError, "gagal memperbarui user")
+	}
+
+	return ok(c, "user berhasil diperbarui sebagian", user)
 }
 
 func deleteUser(c *fiber.Ctx) error {
@@ -292,13 +260,15 @@ func deleteUser(c *fiber.Ctx) error {
 		return fail(c, fiber.StatusBadRequest, "id harus berupa angka positif")
 	}
 
-	i := findUserIndex(id)
+	err := userRepo.Delete(context.Background(), id)
 
-	if i == -1 {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return fail(c, fiber.StatusNotFound, "user tidak ditemukan")
 	}
 
-	users = append(users[:i], users[i+1:]...)
+	if err != nil {
+		return fail(c, fiber.StatusInternalServerError, "gagal menghapus user")
+	}
 
 	return noContent(c)
 }

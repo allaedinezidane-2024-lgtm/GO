@@ -5,10 +5,12 @@ import (
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
+
+	"latihan-fiber/app/model"
 )
 
 func ok(c *fiber.Ctx, message string, data any) error {
-	return c.JSON(WebResponse{
+	return c.JSON(model.WebResponse{
 		Success: true,
 		Message: message,
 		Data:    data,
@@ -16,7 +18,7 @@ func ok(c *fiber.Ctx, message string, data any) error {
 }
 
 func fail(c *fiber.Ctx, status int, message string) error {
-	return c.Status(status).JSON(WebResponse{
+	return c.Status(status).JSON(model.WebResponse{
 		Success: false,
 		Message: message,
 	})
@@ -35,7 +37,7 @@ func paramID(c *fiber.Ctx) (int, bool) {
 	return id, true
 }
 
-func parseListQuery(c *fiber.Ctx) ListQuery {
+func parseListQuery(c *fiber.Ctx) model.ListQuery {
 	page := c.QueryInt("page", 1)
 	limit := c.QueryInt("limit", 10)
 
@@ -52,6 +54,7 @@ func parseListQuery(c *fiber.Ctx) ListQuery {
 	}
 
 	order := strings.ToLower(c.Query("order", "asc"))
+
 	if order != "asc" && order != "desc" {
 		order = "asc"
 	}
@@ -82,7 +85,7 @@ func parseListQuery(c *fiber.Ctx) ListQuery {
 		}
 	}
 
-	return ListQuery{
+	return model.ListQuery{
 		Page:     page,
 		Limit:    limit,
 		Search:   c.Query("search"),
@@ -91,8 +94,9 @@ func parseListQuery(c *fiber.Ctx) ListQuery {
 		IsActive: isActive,
 	}
 }
-func failValidation(c *fiber.Ctx, errs map[string]string) error {
-	return c.Status(fiber.StatusUnprocessableEntity).JSON(WebResponse{
+
+func failValidation(c *fiber.Ctx, errs any) error {
+	return c.Status(fiber.StatusUnprocessableEntity).JSON(model.WebResponse{
 		Success: false,
 		Message: "validasi gagal",
 		Errors:  errs,
@@ -102,7 +106,7 @@ func failValidation(c *fiber.Ctx, errs map[string]string) error {
 func created(c *fiber.Ctx, message string, data any, location string) error {
 	c.Set("Location", location)
 
-	return c.Status(fiber.StatusCreated).JSON(WebResponse{
+	return c.Status(fiber.StatusCreated).JSON(model.WebResponse{
 		Success: true,
 		Message: message,
 		Data:    data,

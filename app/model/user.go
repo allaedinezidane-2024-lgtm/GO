@@ -1,4 +1,4 @@
-package main
+package model
 
 import "time"
 
@@ -51,4 +51,8 @@ type ListQuery struct {
 	Sort     string
 	Order    string
 	IsActive *bool
+}
+
+func (q ListQuery) Offset() int {
+	return (q.Page - 1) * q.Limit
 }
