@@ -237,4 +237,13 @@ func (r *UserRepository) Delete(
 	}
 
 	return nil
+
+}
+
+type UserRepositoryInterface interface {
+	FindAll(ctx context.Context, q model.ListQuery) ([]model.User, int, error)
+	FindByID(ctx context.Context, id int) (*model.User, error)
+	Create(ctx context.Context, u *model.User) error
+	Update(ctx context.Context, u *model.User) error
+	Delete(ctx context.Context, id int) error
 }

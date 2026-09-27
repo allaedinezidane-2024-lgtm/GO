@@ -5,93 +5,56 @@ import (
 	"log"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/cors"
-	"github.com/gofiber/fiber/v2/middleware/logger"
-	"github.com/gofiber/fiber/v2/middleware/requestid"
 
 	"latihan-fiber/app/repository"
+	"latihan-fiber/app/service"
 	"latihan-fiber/config"
 	"latihan-fiber/database"
+	"latihan-fiber/middleware"
+	"latihan-fiber/route"
 )
 
-func requireJSON(c *fiber.Ctx) error {
-	if c.Method() == fiber.MethodPost ||
-		c.Method() == fiber.MethodPut ||
-		c.Method() == fiber.MethodPatch {
-
-		contentType := c.Get("Content-Type")
-
-		if contentType == "" ||
-			contentType[:min(len(contentType), 16)] != "application/json" {
-			return fail(
-				c,
-				fiber.StatusUnsupportedMediaType,
-				"Content-Type harus application/json",
-			)
-		}
-	}
-
-	return c.Next()
-}
-
 func main() {
-	// Load .env
+	// Load environment
 	config.LoadEnv()
 
-	// Koneksi PostgreSQL
+	// Database
 	pool, err := database.NewPool(context.Background())
 	if err != nil {
-		log.Fatalf("database: %v", err)
+		log.Fatalf("gagal koneksi database: %v", err)
 	}
 	defer pool.Close()
 
 	// Repository
-	userRepo = repository.NewUserRepository(pool)
+	userRepository := repository.NewUserRepository(pool)
 
-	app := fiber.New(fiber.Config{
-		ErrorHandler: func(c *fiber.Ctx, err error) error {
-			return fail(c, fiber.StatusInternalServerError, err.Error())
-		},
-	})
+	// Service
+	userService := service.NewUserService(userRepository)
+
+	// Fiber app
+	app := fiber.New()
 
 	// Middleware
-	app.Use(requestid.New())
-	app.Use(logger.New())
-	app.Use(cors.New())
-	app.Use(requireJSON)
+	app.Use(middleware.RequestID())
+	app.Use(middleware.Logger())
+	app.Use(middleware.CORS())
+	app.Use(middleware.RequireJSON())
 
-	// Endpoint Modul 1
+	// Root endpoint
 	app.Get("/", func(c *fiber.Ctx) error {
-		return c.SendString("Hello, World!")
-	})
-
-	// API v1
-	api := app.Group("/api/v1")
-
-	// Health check
-	api.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"success": true,
-			"message": "API dan database berjalan",
+			"message": "API berjalan",
 		})
 	})
 
-	// Users
-	usersRoute := api.Group("/users")
+	// Routes
+	route.Setup(app, userService)
 
-	usersRoute.Get("/", listUsers)
-	usersRoute.Get("/:id", getUser)
-	usersRoute.Post("/", createUser)
-	usersRoute.Put("/:id", replaceUser)
-	usersRoute.Patch("/:id", patchUser)
-	usersRoute.Delete("/:id", deleteUser)
+	// Run server
+	port := config.GetEnv("APP_PORT", "3000")
 
-	log.Fatal(app.Listen(":" + config.GetEnv("APP_PORT", "3000")))
-}
+	log.Printf("server berjalan di port %s", port)
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
+	log.Fatal(app.Listen(":" + port))
 }
