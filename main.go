@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 
@@ -10,6 +11,7 @@ import (
 	"latihan-fiber/app/service"
 	"latihan-fiber/config"
 	"latihan-fiber/database"
+	"latihan-fiber/helper"
 	"latihan-fiber/middleware"
 	"latihan-fiber/route"
 )
@@ -28,8 +30,18 @@ func main() {
 	// Repository
 	userRepository := repository.NewUserRepository(pool)
 
+	// JWT
+	jwtManager := helper.NewJWTManager(
+		config.GetEnv("JWT_SECRET", ""),
+		config.GetEnv("JWT_ISSUER", "latihan-fiber"),
+		15*time.Minute,
+	)
+
 	// Service
-	userService := service.NewUserService(userRepository)
+	userService := service.NewUserService(
+		userRepository,
+		jwtManager,
+	)
 
 	// Fiber app
 	app := fiber.New()
@@ -49,7 +61,7 @@ func main() {
 	})
 
 	// Routes
-	route.Setup(app, userService)
+	route.Setup(app, userService, jwtManager)
 
 	// Run server
 	port := config.GetEnv("APP_PORT", "3000")

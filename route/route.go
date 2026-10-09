@@ -4,9 +4,15 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"latihan-fiber/app/service"
+	"latihan-fiber/helper"
+	"latihan-fiber/middleware"
 )
 
-func Setup(app *fiber.App, userService *service.UserService) {
+func Setup(
+	app *fiber.App,
+	userService *service.UserService,
+	jwtManager *helper.JWTManager,
+) {
 	api := app.Group("/api/v1")
 
 	api.Get("/health", func(c *fiber.Ctx) error {
@@ -18,10 +24,16 @@ func Setup(app *fiber.App, userService *service.UserService) {
 
 	users := api.Group("/users")
 
-	users.Get("/", userService.List)
-	users.Get("/:id", userService.Get)
+	// Public
 	users.Post("/", userService.Create)
-	users.Put("/:id", userService.Replace)
-	users.Patch("/:id", userService.Patch)
-	users.Delete("/:id", userService.Delete)
+	users.Post("/login", userService.Login)
+
+	// Protected
+	protected := users.Group("", middleware.JWTAuth(jwtManager))
+
+	protected.Get("/", userService.List)
+	protected.Get("/:id", userService.Get)
+	protected.Put("/:id", userService.Replace)
+	protected.Patch("/:id", userService.Patch)
+	protected.Delete("/:id", userService.Delete)
 }

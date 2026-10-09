@@ -51,7 +51,6 @@ func (r *UserRepository) FindAll(
 		where = " WHERE " + strings.Join(conditions, " AND ")
 	}
 
-	// Whitelist kolom untuk mencegah SQL injection pada ORDER BY.
 	sortColumns := map[string]string{
 		"id":         "id",
 		"username":   "username",
@@ -70,7 +69,6 @@ func (r *UserRepository) FindAll(
 		order = "DESC"
 	}
 
-	// Hitung total data sesuai filter.
 	var total int
 
 	countQuery := "SELECT COUNT(*) FROM users" + where
@@ -80,7 +78,6 @@ func (r *UserRepository) FindAll(
 		return nil, 0, err
 	}
 
-	// Tambahkan LIMIT dan OFFSET.
 	queryArgs := append([]any{}, args...)
 
 	limitPlaceholder := argNumber
@@ -167,6 +164,33 @@ func (r *UserRepository) FindByID(
 	return &u, nil
 }
 
+func (r *UserRepository) FindByUsername(
+	ctx context.Context,
+	username string,
+) (*model.User, error) {
+
+	var u model.User
+
+	err := r.db.QueryRow(ctx, `
+		SELECT id, username, email, password, is_active, created_at
+		FROM users
+		WHERE username = $1
+	`, username).Scan(
+		&u.ID,
+		&u.Username,
+		&u.Email,
+		&u.Password,
+		&u.IsActive,
+		&u.CreatedAt,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &u, nil
+}
+
 func (r *UserRepository) Create(
 	ctx context.Context,
 	u *model.User,
@@ -237,12 +261,12 @@ func (r *UserRepository) Delete(
 	}
 
 	return nil
-
 }
 
 type UserRepositoryInterface interface {
 	FindAll(ctx context.Context, q model.ListQuery) ([]model.User, int, error)
 	FindByID(ctx context.Context, id int) (*model.User, error)
+	FindByUsername(ctx context.Context, username string) (*model.User, error)
 	Create(ctx context.Context, u *model.User) error
 	Update(ctx context.Context, u *model.User) error
 	Delete(ctx context.Context, id int) error
