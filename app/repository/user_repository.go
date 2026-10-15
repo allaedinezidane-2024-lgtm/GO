@@ -90,7 +90,7 @@ func (r *UserRepository) FindAll(
 	)
 
 	query := fmt.Sprintf(`
-		SELECT id, username, email, password, is_active, created_at
+		SELECT id, username, email, password, role, is_active, created_at
 		FROM users
 		%s
 		ORDER BY %s %s
@@ -119,6 +119,7 @@ func (r *UserRepository) FindAll(
 			&u.Username,
 			&u.Email,
 			&u.Password,
+			&u.Role,
 			&u.IsActive,
 			&u.CreatedAt,
 		)
@@ -145,7 +146,7 @@ func (r *UserRepository) FindByID(
 	var u model.User
 
 	err := r.db.QueryRow(ctx, `
-		SELECT id, username, email, password, is_active, created_at
+		SELECT id, username, email, password, role, is_active, created_at
 		FROM users
 		WHERE id = $1
 	`, id).Scan(
@@ -153,6 +154,7 @@ func (r *UserRepository) FindByID(
 		&u.Username,
 		&u.Email,
 		&u.Password,
+		&u.Role,
 		&u.IsActive,
 		&u.CreatedAt,
 	)
@@ -172,7 +174,7 @@ func (r *UserRepository) FindByUsername(
 	var u model.User
 
 	err := r.db.QueryRow(ctx, `
-		SELECT id, username, email, password, is_active, created_at
+		SELECT id, username, email, password, role, is_active, created_at
 		FROM users
 		WHERE username = $1
 	`, username).Scan(
@@ -180,6 +182,7 @@ func (r *UserRepository) FindByUsername(
 		&u.Username,
 		&u.Email,
 		&u.Password,
+		&u.Role,
 		&u.IsActive,
 		&u.CreatedAt,
 	)
@@ -263,7 +266,19 @@ func (r *UserRepository) Delete(
 	return nil
 }
 
+func (r *UserRepository) SetRole(ctx context.Context, id int, role string) error {
+	cmd, err := r.db.Exec(ctx, `UPDATE users SET role = $1 WHERE id = $2`, role, id)
+	if err != nil {
+		return err
+	}
+	if cmd.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
 type UserRepositoryInterface interface {
+	SetRole(ctx context.Context, id int, role string) error
 	FindAll(ctx context.Context, q model.ListQuery) ([]model.User, int, error)
 	FindByID(ctx context.Context, id int) (*model.User, error)
 	FindByUsername(ctx context.Context, username string) (*model.User, error)

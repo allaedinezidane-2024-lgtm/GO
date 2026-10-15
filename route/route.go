@@ -11,7 +11,9 @@ import (
 func Setup(
 	app *fiber.App,
 	userService *service.UserService,
+	studentService *service.StudentService,
 	jwtManager *helper.JWTManager,
+	permissionSet *helper.PermissionSet,
 ) {
 	api := app.Group("/api/v1")
 
@@ -23,17 +25,45 @@ func Setup(
 	})
 
 	users := api.Group("/users")
-
-	// Public
 	users.Post("/", userService.Create)
 	users.Post("/login", userService.Login)
 
-	// Protected
 	protected := users.Group("", middleware.JWTAuth(jwtManager))
-
-	protected.Get("/", userService.List)
+	protected.Get(
+		"/",
+		middleware.RequirePermission(permissionSet, "user:list"),
+		userService.List,
+	)
 	protected.Get("/:id", userService.Get)
 	protected.Put("/:id", userService.Replace)
 	protected.Patch("/:id", userService.Patch)
-	protected.Delete("/:id", userService.Delete)
+	protected.Delete(
+		"/:id",
+		middleware.RequirePermission(permissionSet, "user:delete"),
+		userService.Delete,
+	)
+	protected.Patch(
+		"/:id/role",
+		middleware.RequirePermission(permissionSet, "role:assign"),
+		userService.AssignRole,
+	)
+
+	students := api.Group(
+		"/students",
+		middleware.JWTAuth(jwtManager),
+	)
+
+	students.Post(
+		"/",
+		middleware.RequirePermission(permissionSet, "student:create"),
+		studentService.Create,
+	)
+	students.Get(
+		"/",
+		middleware.RequirePermission(permissionSet, "student:list"),
+		studentService.List,
+	)
+	students.Get("/:id", studentService.Get)
+	students.Patch("/:id", studentService.Patch)
+	students.Delete("/:id", studentService.Delete)
 }

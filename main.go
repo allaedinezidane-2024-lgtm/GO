@@ -17,56 +17,48 @@ import (
 )
 
 func main() {
-	// Load environment
 	config.LoadEnv()
 
-	// Database
-	pool, err := database.NewPool(context.Background())
+	ctx := context.Background()
+	pool, err := database.NewPool(ctx)
 	if err != nil {
 		log.Fatalf("gagal koneksi database: %v", err)
 	}
 	defer pool.Close()
 
-	// Repository
-	userRepository := repository.NewUserRepository(pool)
+	roleRepository := repository.NewRoleRepository(pool)
+	mapping, err := roleRepository.PermissionsByRole(ctx)
+	if err != nil {
+		log.Fatalf("gagal memuat permission RBAC: %v; pastikan migrations/003_rbac.sql sudah dijalankan", err)
+	}
+	permissionSet := helper.NewPermissionSet(mapping)
 
-	// JWT
+	log.Printf("RBAC aktif; role terdaftar: %v", permissionSet.KnownRoles())
+
+	userRepository := repository.NewUserRepository(pool)
 	jwtManager := helper.NewJWTManager(
 		config.GetEnv("JWT_SECRET", ""),
 		config.GetEnv("JWT_ISSUER", "latihan-fiber"),
 		15*time.Minute,
 	)
+	userService := service.NewUserService(userRepository, jwtManager, permissionSet)
 
-	// Service
-	userService := service.NewUserService(
-		userRepository,
-		jwtManager,
-	)
+	studentRepository := repository.NewStudentRepository(pool)
+	studentService := service.NewStudentService(studentRepository, permissionSet)
 
-	// Fiber app
 	app := fiber.New()
-
-	// Middleware
 	app.Use(middleware.RequestID())
 	app.Use(middleware.Logger())
 	app.Use(middleware.CORS())
 	app.Use(middleware.RequireJSON())
 
-	// Root endpoint
 	app.Get("/", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{
-			"success": true,
-			"message": "API berjalan",
-		})
+		return c.JSON(fiber.Map{"success": true, "message": "API berjalan"})
 	})
 
-	// Routes
-	route.Setup(app, userService, jwtManager)
+	route.Setup(app, userService, studentService, jwtManager, permissionSet)
 
-	// Run server
 	port := config.GetEnv("APP_PORT", "3000")
-
 	log.Printf("server berjalan di port %s", port)
-
 	log.Fatal(app.Listen(":" + port))
 }
