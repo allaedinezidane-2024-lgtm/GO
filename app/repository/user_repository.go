@@ -23,27 +23,50 @@ func (r *UserRepository) FindAll(
 	ctx context.Context,
 	q model.ListQuery,
 ) ([]model.User, int, error) {
-
 	conditions := []string{}
 	args := []any{}
-	argNumber := 1
 
+	// Pencarian user.
 	if q.Search != "" {
-		conditions = append(
-			conditions,
-			fmt.Sprintf("(username ILIKE $%d OR email ILIKE $%d)", argNumber, argNumber),
-		)
 		args = append(args, "%"+q.Search+"%")
-		argNumber++
+		conditions = append(conditions, fmt.Sprintf(
+			"(username ILIKE $%d OR email ILIKE $%d)",
+			len(args), len(args),
+		))
 	}
 
+	// Filter status aktif.
 	if q.IsActive != nil {
-		conditions = append(
-			conditions,
-			fmt.Sprintf("is_active = $%d", argNumber),
-		)
 		args = append(args, *q.IsActive)
-		argNumber++
+		conditions = append(conditions, fmt.Sprintf(
+			"is_active = $%d", len(args),
+		))
+	}
+
+	// Hitung total berdasarkan filter, sebelum cursor diterapkan.
+	countWhere := ""
+	if len(conditions) > 0 {
+		countWhere = " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	var total int
+	countArgs := append([]any{}, args...)
+	err := r.db.QueryRow(
+		ctx,
+		"SELECT COUNT(*) FROM users"+countWhere,
+		countArgs...,
+	).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Cursor pagination menggunakan (created_at, id).
+	if q.CursorTime != nil && q.CursorID > 0 {
+		args = append(args, *q.CursorTime, q.CursorID)
+		conditions = append(conditions, fmt.Sprintf(
+			"(created_at, id) > ($%d, $%d)",
+			len(args)-1, len(args),
+		))
 	}
 
 	where := ""
@@ -51,70 +74,35 @@ func (r *UserRepository) FindAll(
 		where = " WHERE " + strings.Join(conditions, " AND ")
 	}
 
-	sortColumns := map[string]string{
-		"id":         "id",
-		"username":   "username",
-		"email":      "email",
-		"is_active":  "is_active",
-		"created_at": "created_at",
+	// Ambil satu data ekstra untuk mendeteksi halaman berikutnya.
+	limit := q.Limit
+	if limit < 1 {
+		limit = 10
+	}
+	if limit > 100 {
+		limit = 100
 	}
 
-	sortColumn, ok := sortColumns[q.Sort]
-	if !ok {
-		sortColumn = "id"
-	}
-
-	order := "ASC"
-	if strings.ToLower(q.Order) == "desc" {
-		order = "DESC"
-	}
-
-	var total int
-
-	countQuery := "SELECT COUNT(*) FROM users" + where
-
-	err := r.db.QueryRow(ctx, countQuery, args...).Scan(&total)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	queryArgs := append([]any{}, args...)
-
-	limitPlaceholder := argNumber
-	offsetPlaceholder := argNumber + 1
-
-	queryArgs = append(
-		queryArgs,
-		q.Limit,
-		q.Offset(),
-	)
+	args = append(args, limit+1)
 
 	query := fmt.Sprintf(`
 		SELECT id, username, email, password, role, is_active, created_at
 		FROM users
 		%s
-		ORDER BY %s %s
-		LIMIT $%d OFFSET $%d
-	`,
-		where,
-		sortColumn,
-		order,
-		limitPlaceholder,
-		offsetPlaceholder,
-	)
+		ORDER BY created_at ASC, id ASC
+		LIMIT $%d
+	`, where, len(args))
 
-	rows, err := r.db.Query(ctx, query, queryArgs...)
+	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer rows.Close()
 
 	users := []model.User{}
-
 	for rows.Next() {
 		var u model.User
-
-		err := rows.Scan(
+		if err := rows.Scan(
 			&u.ID,
 			&u.Username,
 			&u.Email,
@@ -122,12 +110,9 @@ func (r *UserRepository) FindAll(
 			&u.Role,
 			&u.IsActive,
 			&u.CreatedAt,
-		)
-
-		if err != nil {
+		); err != nil {
 			return nil, 0, err
 		}
-
 		users = append(users, u)
 	}
 
@@ -142,7 +127,6 @@ func (r *UserRepository) FindByID(
 	ctx context.Context,
 	id int,
 ) (*model.User, error) {
-
 	var u model.User
 
 	err := r.db.QueryRow(ctx, `
@@ -158,7 +142,6 @@ func (r *UserRepository) FindByID(
 		&u.IsActive,
 		&u.CreatedAt,
 	)
-
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +153,6 @@ func (r *UserRepository) FindByUsername(
 	ctx context.Context,
 	username string,
 ) (*model.User, error) {
-
 	var u model.User
 
 	err := r.db.QueryRow(ctx, `
@@ -186,7 +168,6 @@ func (r *UserRepository) FindByUsername(
 		&u.IsActive,
 		&u.CreatedAt,
 	)
-
 	if err != nil {
 		return nil, err
 	}
@@ -198,34 +179,25 @@ func (r *UserRepository) Create(
 	ctx context.Context,
 	u *model.User,
 ) error {
-
 	return r.db.QueryRow(ctx, `
-		INSERT INTO users
-			(username, email, password, is_active)
-		VALUES
-			($1, $2, $3, $4)
+		INSERT INTO users (username, email, password, is_active)
+		VALUES ($1, $2, $3, $4)
 		RETURNING id, created_at
 	`,
 		u.Username,
 		u.Email,
 		u.Password,
 		u.IsActive,
-	).Scan(
-		&u.ID,
-		&u.CreatedAt,
-	)
+	).Scan(&u.ID, &u.CreatedAt)
 }
 
 func (r *UserRepository) Update(
 	ctx context.Context,
 	u *model.User,
 ) error {
-
 	cmd, err := r.db.Exec(ctx, `
 		UPDATE users
-		SET username = $1,
-			email = $2,
-			is_active = $3
+		SET username = $1, email = $2, is_active = $3
 		WHERE id = $4
 	`,
 		u.Username,
@@ -233,11 +205,9 @@ func (r *UserRepository) Update(
 		u.IsActive,
 		u.ID,
 	)
-
 	if err != nil {
 		return err
 	}
-
 	if cmd.RowsAffected() == 0 {
 		return pgx.ErrNoRows
 	}
@@ -249,16 +219,12 @@ func (r *UserRepository) Delete(
 	ctx context.Context,
 	id int,
 ) error {
-
 	cmd, err := r.db.Exec(ctx, `
-		DELETE FROM users
-		WHERE id = $1
+		DELETE FROM users WHERE id = $1
 	`, id)
-
 	if err != nil {
 		return err
 	}
-
 	if cmd.RowsAffected() == 0 {
 		return pgx.ErrNoRows
 	}
@@ -266,14 +232,24 @@ func (r *UserRepository) Delete(
 	return nil
 }
 
-func (r *UserRepository) SetRole(ctx context.Context, id int, role string) error {
-	cmd, err := r.db.Exec(ctx, `UPDATE users SET role = $1 WHERE id = $2`, role, id)
+func (r *UserRepository) SetRole(
+	ctx context.Context,
+	id int,
+	role string,
+) error {
+	cmd, err := r.db.Exec(
+		ctx,
+		`UPDATE users SET role = $1 WHERE id = $2`,
+		role,
+		id,
+	)
 	if err != nil {
 		return err
 	}
 	if cmd.RowsAffected() == 0 {
 		return pgx.ErrNoRows
 	}
+
 	return nil
 }
 

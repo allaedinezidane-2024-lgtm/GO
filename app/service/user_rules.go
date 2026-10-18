@@ -1,72 +1,57 @@
 package service
 
 import (
-	"regexp"
 	"strings"
 
 	"latihan-fiber/app/model"
+	"latihan-fiber/helper"
 )
 
 func ValidateCreate(user model.CreateUserRequest) map[string]string {
-	errors := make(map[string]string)
+	user.Username = strings.TrimSpace(user.Username)
+	user.Email = strings.TrimSpace(user.Email)
 
-	if strings.TrimSpace(user.Username) == "" {
-		errors["username"] = "username is required"
-	}
-
-	if strings.TrimSpace(user.Email) == "" {
-		errors["email"] = "email is required"
-	} else if !isValidEmail(user.Email) {
-		errors["email"] = "email must be valid"
-	}
-
-	if strings.TrimSpace(user.Password) == "" {
-		errors["password"] = "password is required"
-	}
-
-	return errors
+	return helper.ValidateStruct(user)
 }
 
 func ValidateReplace(user model.ReplaceUserRequest) map[string]string {
-	errors := make(map[string]string)
+	user.Username = strings.TrimSpace(user.Username)
+	user.Email = strings.TrimSpace(user.Email)
 
-	if strings.TrimSpace(user.Username) == "" {
-		errors["username"] = "username is required"
-	}
-
-	if strings.TrimSpace(user.Email) == "" {
-		errors["email"] = "email is required"
-	} else if !isValidEmail(user.Email) {
-		errors["email"] = "email must be valid"
-	}
-
-	return errors
+	return helper.ValidateStruct(user)
 }
 
 func ApplyPatch(user *model.User, patch model.PatchUserRequest) map[string]string {
-	errors := make(map[string]string)
+	validationErrors := helper.ValidateStruct(patch)
+	if len(validationErrors) > 0 {
+		return validationErrors
+	}
 
 	if patch.Username != nil {
-		if strings.TrimSpace(*patch.Username) == "" {
-			errors["username"] = "username is required"
-		} else {
-			user.Username = *patch.Username
+		value := strings.TrimSpace(*patch.Username)
+		if value == "" {
+			return map[string]string{
+				"username": "field wajib diisi",
+			}
 		}
+		user.Username = value
 	}
 
 	if patch.Email != nil {
-		if !isValidEmail(*patch.Email) {
-			errors["email"] = "email must be valid"
-		} else {
-			user.Email = *patch.Email
+		value := strings.TrimSpace(*patch.Email)
+		if value == "" {
+			return map[string]string{
+				"email": "field wajib diisi",
+			}
 		}
+		user.Email = value
 	}
 
 	if patch.IsActive != nil {
 		user.IsActive = *patch.IsActive
 	}
 
-	return errors
+	return nil
 }
 
 func IsEmptyPatch(patch model.PatchUserRequest) bool {
@@ -81,10 +66,4 @@ func CountTotalPages(total, limit int) int {
 	}
 
 	return (total + limit - 1) / limit
-}
-
-func isValidEmail(email string) bool {
-	pattern := `^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`
-
-	return regexp.MustCompile(pattern).MatchString(email)
 }

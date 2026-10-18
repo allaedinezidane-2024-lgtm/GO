@@ -20,26 +20,26 @@ type AuthUser struct {
 }
 
 type CreateUserRequest struct {
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Username string `json:"username" validate:"required"`
+	Email    string `json:"email" validate:"required,email"`
+	Password string `json:"password" validate:"required"`
 }
 
 type LoginRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Username string `json:"username" validate:"required"`
+	Password string `json:"password" validate:"required"`
 }
 
 type ReplaceUserRequest struct {
-	Username string `json:"username"`
-	Email    string `json:"email"`
+	Username string `json:"username" validate:"required"`
+	Email    string `json:"email" validate:"required,email"`
 	IsActive bool   `json:"is_active"`
 }
 
 type PatchUserRequest struct {
-	Username *string `json:"username,omitempty"`
-	Email    *string `json:"email,omitempty"`
-	IsActive *bool   `json:"is_active,omitempty"`
+	Username *string `json:"username,omitempty" validate:"omitnil,required"`
+	Email    *string `json:"email,omitempty" validate:"omitnil,required,email"`
+	IsActive *bool   `json:"is_active,omitempty" validate:"omitnil"`
 }
 
 type WebResponse struct {
@@ -58,12 +58,14 @@ type Meta struct {
 }
 
 type ListQuery struct {
-	Page     int
-	Limit    int
-	Search   string
-	Sort     string
-	Order    string
-	IsActive *bool
+	Page       int
+	Limit      int
+	Search     string
+	Sort       string
+	Order      string
+	IsActive   *bool
+	CursorTime *time.Time
+	CursorID   int
 }
 
 func (q ListQuery) Offset() int {

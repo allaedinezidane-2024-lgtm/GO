@@ -38,16 +38,18 @@ func NoContent(c *fiber.Ctx) error {
 }
 
 func Fail(c *fiber.Ctx, status int, message string) error {
-	return c.Status(status).JSON(model.WebResponse{
-		Success: false,
+	return &AppError{
+		Status:  status,
+		Code:    errorCode(status),
 		Message: message,
-	})
+	}
 }
 
 func FailValidation(c *fiber.Ctx, errs map[string]string) error {
-	return c.Status(fiber.StatusUnprocessableEntity).JSON(model.WebResponse{
-		Success: false,
+	return &AppError{
+		Status:  fiber.StatusUnprocessableEntity,
+		Code:    "VALIDATION_ERROR",
 		Message: "validasi gagal",
 		Errors:  errs,
-	})
+	}
 }

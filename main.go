@@ -46,14 +46,20 @@ func main() {
 	studentRepository := repository.NewStudentRepository(pool)
 	studentService := service.NewStudentService(studentRepository, permissionSet)
 
-	app := fiber.New()
+	app := fiber.New(fiber.Config{
+		ErrorHandler: helper.ErrorHandler,
+	})
+
 	app.Use(middleware.RequestID())
 	app.Use(middleware.Logger())
 	app.Use(middleware.CORS())
 	app.Use(middleware.RequireJSON())
 
 	app.Get("/", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"success": true, "message": "API berjalan"})
+		return c.JSON(fiber.Map{
+			"success": true,
+			"message": "API berjalan",
+		})
 	})
 
 	route.Setup(app, userService, studentService, jwtManager, permissionSet)

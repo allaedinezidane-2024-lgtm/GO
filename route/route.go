@@ -16,6 +16,7 @@ func Setup(
 	permissionSet *helper.PermissionSet,
 ) {
 	api := app.Group("/api/v1")
+	api.Use(middleware.RequireJSON())
 
 	api.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{

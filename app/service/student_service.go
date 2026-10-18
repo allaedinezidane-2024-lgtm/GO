@@ -46,12 +46,47 @@ func (s *StudentService) List(c *fiber.Ctx) error {
 	ctx, cancel := helper.RequestContext(c)
 	defer cancel()
 
-	students, err := s.repo.FindAll(ctx)
+	q := helper.ParseListQuery(c)
+
+	students, err := s.repo.FindAll(ctx, q)
 	if err != nil {
-		return helper.Fail(c, fiber.StatusInternalServerError, "gagal mengambil data mahasiswa")
+		return helper.Fail(
+			c,
+			fiber.StatusInternalServerError,
+			"gagal mengambil data mahasiswa",
+		)
 	}
 
-	return helper.Success(c, fiber.StatusOK, "daftar mahasiswa berhasil diambil", students)
+	hasMore := len(students) > q.Limit
+	if hasMore {
+		students = students[:q.Limit]
+	}
+
+	nextCursor := ""
+	if hasMore && len(students) > 0 {
+		last := students[len(students)-1]
+
+		nextCursor, err = helper.EncodeCursor(last.CreatedAt, last.ID)
+		if err != nil {
+			return helper.Fail(
+				c,
+				fiber.StatusInternalServerError,
+				"gagal membuat cursor",
+			)
+		}
+	}
+
+	return helper.SuccessNegotiated(
+		c,
+		fiber.StatusOK,
+		"daftar mahasiswa berhasil diambil",
+		fiber.Map{
+			"items":       students,
+			"limit":       q.Limit,
+			"next_cursor": nextCursor,
+			"has_more":    hasMore,
+		},
+	)
 }
 
 func (s *StudentService) Get(c *fiber.Ctx) error {
@@ -98,26 +133,7 @@ func (s *StudentService) Create(c *fiber.Ctx) error {
 	req.Nama = strings.TrimSpace(req.Nama)
 	req.Prodi = strings.TrimSpace(req.Prodi)
 
-	validationErrors := make(map[string]string)
-
-	if req.NIM == "" {
-		validationErrors["nim"] = "NIM wajib diisi"
-	} else if len(req.NIM) > 20 {
-		validationErrors["nim"] = "NIM maksimal 20 karakter"
-	}
-
-	if req.Nama == "" {
-		validationErrors["nama"] = "nama wajib diisi"
-	} else if len(req.Nama) > 100 {
-		validationErrors["nama"] = "nama maksimal 100 karakter"
-	}
-
-	if req.Prodi == "" {
-		validationErrors["prodi"] = "program studi wajib diisi"
-	} else if len(req.Prodi) > 100 {
-		validationErrors["prodi"] = "program studi maksimal 100 karakter"
-	}
-
+	validationErrors := helper.ValidateStruct(req)
 	if len(validationErrors) > 0 {
 		return helper.FailValidation(c, validationErrors)
 	}
@@ -183,34 +199,21 @@ func (s *StudentService) Patch(c *fiber.Ctx) error {
 		return helper.Fail(c, fiber.StatusForbidden, "permission ditolak")
 	}
 
+	validationErrors := helper.ValidateStruct(req)
+	if len(validationErrors) > 0 {
+		return helper.FailValidation(c, validationErrors)
+	}
+
 	if req.NIM != nil {
-		value := strings.TrimSpace(*req.NIM)
-		if value == "" || len(value) > 20 {
-			return helper.FailValidation(c, map[string]string{
-				"nim": "NIM wajib diisi dan maksimal 20 karakter",
-			})
-		}
-		student.NIM = value
+		student.NIM = strings.TrimSpace(*req.NIM)
 	}
 
 	if req.Nama != nil {
-		value := strings.TrimSpace(*req.Nama)
-		if value == "" || len(value) > 100 {
-			return helper.FailValidation(c, map[string]string{
-				"nama": "nama wajib diisi dan maksimal 100 karakter",
-			})
-		}
-		student.Nama = value
+		student.Nama = strings.TrimSpace(*req.Nama)
 	}
 
 	if req.Prodi != nil {
-		value := strings.TrimSpace(*req.Prodi)
-		if value == "" || len(value) > 100 {
-			return helper.FailValidation(c, map[string]string{
-				"prodi": "program studi wajib diisi dan maksimal 100 karakter",
-			})
-		}
-		student.Prodi = value
+		student.Prodi = strings.TrimSpace(*req.Prodi)
 	}
 
 	err = s.repo.Update(ctx, student)
@@ -267,4 +270,13 @@ func (s *StudentService) Delete(c *fiber.Ctx) error {
 func isStudentDuplicate(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+func trimPointer(value *string) *string {
+	if value == nil {
+		return nil
+	}
+
+	trimmed := strings.TrimSpace(*value)
+	return &trimmed
 }

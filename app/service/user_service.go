@@ -46,11 +46,27 @@ func (s *UserService) List(c *fiber.Ctx) error {
 		return helper.Fail(c, fiber.StatusInternalServerError, "gagal mengambil data user")
 	}
 
-	meta := &model.Meta{
-		Page: q.Page, Limit: q.Limit, Total: total,
-		TotalPages: CountTotalPages(total, q.Limit),
+	hasMore := len(users) > q.Limit
+	if hasMore {
+		users = users[:q.Limit]
 	}
-	return helper.SuccessList(c, "daftar user berhasil diambil", users, meta)
+
+	var nextCursor string
+	if hasMore && len(users) > 0 {
+		last := users[len(users)-1]
+		nextCursor, err = helper.EncodeCursor(last.CreatedAt, last.ID)
+		if err != nil {
+			return helper.Fail(c, fiber.StatusInternalServerError, "gagal membuat cursor")
+		}
+	}
+
+	return helper.SuccessNegotiated(c, fiber.StatusOK, "daftar user berhasil diambil", fiber.Map{
+		"items":       users,
+		"total":       total,
+		"limit":       q.Limit,
+		"next_cursor": nextCursor,
+		"has_more":    hasMore,
+	})
 }
 
 func (s *UserService) Get(c *fiber.Ctx) error {
