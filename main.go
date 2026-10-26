@@ -46,6 +46,8 @@ func main() {
 	studentRepository := repository.NewStudentRepository(pool)
 	studentService := service.NewStudentService(studentRepository, permissionSet)
 
+	siakadService := service.NewSiakadService(pool, jwtManager)
+
 	app := fiber.New(fiber.Config{
 		ErrorHandler: helper.ErrorHandler,
 	})
@@ -62,6 +64,7 @@ func main() {
 		})
 	})
 
+	route.SetupSiakad(app, siakadService, jwtManager)
 	route.Setup(app, userService, studentService, jwtManager, permissionSet)
 
 	port := config.GetEnv("APP_PORT", "3000")
